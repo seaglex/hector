@@ -68,6 +68,8 @@ func (m *OWLQNMinimizer) Minimize(costfun DiffFunction, init *Vector) *Vector {
 	return pos
 }
 
+// Description: assume all the features in x also appears in grad
+//              all the features in dir must be in grad
 func (m *OWLQNMinimizer) updateGradForNewPos(x *Vector, grad *Vector, dir *Vector) {
     if m.l1reg == 0 {
         return
@@ -90,6 +92,7 @@ func (m *OWLQNMinimizer) updateGradForNewPos(x *Vector, grad *Vector, dir *Vecto
     return
 }
 
+// Description: assume all the features in x also appears in grad
 func (m *OWLQNMinimizer) updateGrad(x *Vector, grad *Vector) {
     if m.l1reg == 0 {
         return

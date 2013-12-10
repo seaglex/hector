@@ -15,7 +15,7 @@ type mseDiffFunction struct {
 
 func getMSECostFunction() *mseDiffFunction{
 	f := new(mseDiffFunction)
-    f.center.data = map[int64]float64 {0:0, 1:0}
+    f.center.data = map[int64]float64 {}
     f.weights.data = map[int64]float64 {0:1, 1:0.01}
     f.init.data = map[int64]float64 {0:1, 1:1}
     f.grad.data = map[int64]float64 {0:0, 1:0}
