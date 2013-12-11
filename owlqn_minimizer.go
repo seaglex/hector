@@ -17,6 +17,8 @@ type OWLQNMinimizer struct {
     tolerance float64
 }
 
+var owlqn_output_switch bool = false
+
 func NewOWLQNMinimizer(l1reg float64) *OWLQNMinimizer {
     m := new(OWLQNMinimizer)
     m.l1reg = l1reg
@@ -35,8 +37,10 @@ func (m *OWLQNMinimizer) Minimize(costfun DiffFunction, init *Vector) *Vector {
     terminalCriterion.addCost(cost)
 
     var helper *QuasiNewtonHelper = NewQuasiNewtonHelper(m.numHist, m, pos, grad)
-    fmt.Println("Iter\tcost\timprovement")
-    fmt.Printf("%d\t%e\tUndefined\n", 0, cost)
+    if owlqn_output_switch {
+        fmt.Println("Iter\tcost\timprovement")
+        fmt.Printf("%d\t%e\tUndefined", 0, cost)
+    }
     for iter:=1; iter <= m.maxIteration; iter++ {
         // customed steepest descending dir
         steepestDescDir := grad.Copy()
@@ -50,18 +54,23 @@ func (m *OWLQNMinimizer) Minimize(costfun DiffFunction, init *Vector) *Vector {
         potentialGrad := grad.Copy()
         m.updateGradForNewPos(pos, potentialGrad, dir)
         newCost, newPos := helper.BackTrackingLineSearch(cost, pos, potentialGrad, dir, iter==1)
+        if owlqn_output_switch {
+            fmt.Println("")
+        }
         if cost == newCost {
             break
         }
         cost = newCost
         pos = newPos
-        terminalCriterion.addCost(cost)
-        fmt.Printf("%d\t%e\t%e\n", iter, newCost, terminalCriterion.improvement)
-        if terminalCriterion.isTerminable() {
-            break
-        }
         grad = costfun.Gradient(pos).Copy()
-		if helper.UpdateState(pos, grad) {
+        terminalCriterion.addCost(cost)
+        if owlqn_output_switch {
+            fmt.Printf("%d\t%e\t%e", iter, newCost, terminalCriterion.improvement)
+        }
+        if terminalCriterion.isTerminable() || helper.UpdateState(pos, grad) {
+            if owlqn_output_switch {
+                fmt.Println("")
+            }
 			break
 		}
     }
@@ -134,6 +143,9 @@ func (m *OWLQNMinimizer) Evaluate(pos *Vector) float64 {
 }
 
 func (m *OWLQNMinimizer) NextPoint(curPos *Vector, dir *Vector, alpha float64) *Vector {
+    if owlqn_output_switch {
+        fmt.Printf(".")
+    }
     newPos := curPos.ElemWiseMultiplyAdd(dir, alpha)
     if m.l1reg > 0 {
         for key, val := range curPos.data {
