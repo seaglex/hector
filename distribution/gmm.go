@@ -2,7 +2,9 @@ package distribution
 
 import (
 	"errors"
+	"fmt"
 	"math"
+	"strings"
 )
 
 type GMM struct {
@@ -11,6 +13,16 @@ type GMM struct {
 	Priors     []float64
 	LogPriors  []float64
 	Mixtures   []*DiagonalGaussian
+}
+
+func (self *GMM) String() string {
+	lines := []string{}
+	lines = append(lines, fmt.Sprint(self.NumMixture, self.Dimension))
+	lines = append(lines, fmt.Sprint(self.Priors))
+	for _, model := range self.Mixtures {
+		lines = append(lines, fmt.Sprint(model.Means, model.Covs))
+	}
+	return strings.Join(lines, ";")
 }
 
 func NewGMM(dim int, priors []float64, distribs []*DiagonalGaussian) (*GMM, error) {
@@ -131,7 +143,7 @@ type GMMTrainer struct {
 	Dimension       int
 	DistribTrainers []*DiagonalGaussianTrainer
 	AccPriors       []float64
-	DistribMixture  *GMM
+	Model           *GMM
 }
 
 func NewGMMTrainer(dim int, maxMixture int) *GMMTrainer {
@@ -143,7 +155,7 @@ func NewGMMTrainer(dim int, maxMixture int) *GMMTrainer {
 		Dimension:       dim,
 		DistribTrainers: make([]*DiagonalGaussianTrainer, numMixture, numMixture),
 		AccPriors:       make([]float64, numMixture, numMixture),
-		DistribMixture:  defaultGMM,
+		Model:           defaultGMM,
 	}
 	trainer.initGMMTrainer(dim, numMixture)
 	return trainer
@@ -187,7 +199,7 @@ func getMaxValue(prs []float64) float64 {
 
 func (self *GMMTrainer) LearnCase(vec []float32, weight float64) float64 {
 	var logPosteriors []float64
-	logPosteriors = self.DistribMixture.GetLogProbabilities(vec)
+	logPosteriors = self.Model.GetLogProbabilities(vec)
 	var maxPosterior float64 = getMaxValue(logPosteriors)
 	var posteriors []float64 = make([]float64, self.NumMixture, self.NumMixture)
 	var sumPr float64 = 0
@@ -226,15 +238,15 @@ func (self *GMMTrainer) Optimize() error {
 		}
 		distribs[m] = distrib
 	}
-	self.DistribMixture.UpdateModel(priors, distribs)
+	self.Model.UpdateModel(priors, distribs)
 	if self.NumMixture < self.MaxMixture {
-		self.DistribMixture.SplitOne()
+		self.Model.SplitOne()
 	}
-	self.initGMMTrainer(self.DistribMixture.Dimension, self.DistribMixture.NumMixture)
+	self.initGMMTrainer(self.Model.Dimension, self.Model.NumMixture)
 	return nil
 }
 
 func (self *GMMTrainer) GMM() *GMM {
-	result := *self.DistribMixture
+	result := *self.Model
 	return &result
 }
