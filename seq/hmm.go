@@ -18,36 +18,43 @@ type HMM struct {
 	PI       core.DenseVector64
 	A        *core.Matrix
 	B        []*distr.GMM
+	InvA     [][]int // to accelerate the viterbi decoding
 }
 
-func CheckStateTransition(numState int, stateTransition *core.Matrix) error {
+func CheckStateTransition(numState int, stateTransition *core.Matrix) ([][]int, error) {
 	if stateTransition == nil {
-		return errors.New("HMM: nil argument")
+		return nil, errors.New("HMM: nil argument")
 	}
+	var invA [][]int = make([][]int, numState+1, numState+1)
 	var prOut float64 = 0
 	for src, vec := range stateTransition.Data {
 		if src < 0 {
-			errors.New("HMM: source state is negative")
+			return nil, errors.New("HMM: source state is negative")
 		} else if int(src) >= numState {
-			return errors.New("HMM: source state >= numState (numState is end state)")
+			return nil, errors.New("HMM: source state >= numState (numState is end state)")
 		}
 		for dst, pr := range vec.Data {
 			if pr < 0 {
-				return errors.New("HMM: negative transition probability")
+				return nil, errors.New("HMM: negative transition probability")
 			}
 			if dst < 0 {
-				errors.New("HMM: destination state is negative")
+				return nil, errors.New("HMM: destination state is negative")
 			} else if int(dst) > numState {
-				errors.New("HMM: dstination state > numState")
+				return nil, errors.New("HMM: dstination state > numState")
 			} else if int(dst) == numState {
 				prOut += pr
+			}
+			if invA[dst] == nil {
+				invA[dst] = []int{int(src)}
+			} else {
+				invA[dst] = append(invA[dst], int(src))
 			}
 		}
 	}
 	if prOut <= 0 {
-		return errors.New("HMM: No chance to go to end state (numState)")
+		return nil, errors.New("HMM: No chance to go to end state (numState)")
 	}
-	return nil
+	return invA, nil
 }
 
 func (self *HMM) String() string {
@@ -67,7 +74,7 @@ func NewHMM(numState int, stateTransition *core.Matrix, stateObservation []*dist
 	if stateTransition == nil || stateObservation == nil {
 		return nil, errors.New("HMM: Nil Arguments")
 	}
-	err := CheckStateTransition(numState, stateTransition)
+	invA, err := CheckStateTransition(numState, stateTransition)
 	if err != nil {
 		return nil, err
 	}
@@ -81,6 +88,7 @@ func NewHMM(numState int, stateTransition *core.Matrix, stateObservation []*dist
 		PI:       pi,
 		A:        stateTransition,
 		B:        stateObservation,
+		InvA:     invA,
 	}
 	return hmm, nil
 }
@@ -91,6 +99,38 @@ func (self *HMM) GetStateProbabilities(x []float32) core.DenseVector64 {
 		prs[n] = model.GetProbability(x)
 	}
 	return prs
+}
+
+func (self *HMM) GetLogStateProbabilities(x []float32) core.DenseVector64 {
+	var lprs core.DenseVector64 = self.GetStateProbabilities(x)
+	for n, pr := range lprs {
+		lprs[n] = math.Log(pr)
+	}
+	return lprs
+}
+
+func (self *HMM) GetInitStateProbability(x []float32) float64 {
+	return self.B[0].GetProbability(x)
+}
+
+func (self *HMM) GetLogInitStateProbability(x []float32) float64 {
+	return math.Log(self.B[0].GetProbability(x))
+}
+
+func (self *HMM) GetTransitionProbability(ss int, ds int) float64 {
+	return self.A.GetValue(int64(ss), int64(ds))
+}
+
+func (self *HMM) GetLogTransitionProbability(ss int, ds int) (float64, bool) {
+	pr := self.A.GetValue(int64(ss), int64(ds))
+	if pr == 0 {
+		return 0, false
+	}
+	return math.Log(pr), true
+}
+
+func (self *HMM) GetSourceStates(dstState int) []int {
+	return self.InvA[dstState]
 }
 
 func (self *HMM) Decode(seq []core.DenseVector) (alphas []core.DenseVector64, betas []core.DenseVector64, gammas []core.DenseVector64, prs []core.DenseVector64, score float64) {

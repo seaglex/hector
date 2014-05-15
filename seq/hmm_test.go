@@ -54,7 +54,26 @@ func SampleVector(vec *core.Vector) int {
 	return int(lastN)
 }
 
-func TestHMM(t *testing.T) {
+func GenerateData(dim int, stdHMM *HMM) []core.DenseVector {
+	data := []core.DenseVector{}
+	s := Sample(stdHMM.PI)
+	for true {
+		if s == stdHMM.NumState {
+			break
+		}
+		gmm := stdHMM.B[s]
+		m := Sample(gmm.Priors)
+		vec := make(core.DenseVector, dim, dim)
+		for d := 0; d < dim; d++ {
+			vec[d] = float32(rand.NormFloat64()*math.Sqrt(gmm.Mixtures[m].Covs[d]) + gmm.Mixtures[m].Means[d])
+		}
+		data = append(data, vec)
+		s = SampleVector(stdHMM.A.GetRow(int64(s)))
+	}
+	return data
+}
+
+func TestConnectedHMM(t *testing.T) {
 	// config
 	numState := 3
 	dim := 2
@@ -82,9 +101,10 @@ func TestHMM(t *testing.T) {
 		[]float64{1, 2},
 	}
 	priors3 := []float64{0.6, 0.4}
+	sigma := 0.5
 	covs := [][]float64{
-		[]float64{0.5, 0.5},
-		[]float64{0.5, 0.5},
+		[]float64{sigma * sigma, sigma * sigma},
+		[]float64{sigma * sigma, sigma * sigma},
 	}
 
 	initMat := [][]float64{
@@ -113,29 +133,15 @@ func TestHMM(t *testing.T) {
 	}
 
 	// generate data
-	datas := make([][]core.DenseVector, 1, numData)
+	datas := make([][]core.DenseVector, numData, numData)
 	datas[0] = []core.DenseVector{
 		core.DenseVector{-2, -2},
 		core.DenseVector{-1, -1},
 		core.DenseVector{2, 2},
 	}
 	for n := 1; n < numData; n++ {
-		data := []core.DenseVector{}
-		s := Sample(stdHMM.PI)
-		for true {
-			if s == stdHMM.NumState {
-				break
-			}
-			gmm := stdHMM.B[s]
-			m := Sample(gmm.Priors)
-			vec := make(core.DenseVector, dim, dim)
-			for d := 0; d < dim; d++ {
-				vec[d] = float32(rand.NormFloat64()*gmm.Mixtures[m].Covs[d] + gmm.Mixtures[m].Means[d])
-			}
-			data = append(data, vec)
-			s = SampleVector(stdHMM.A.GetRow(int64(s)))
-		}
-		datas = append(datas, data)
+		data := GenerateData(dim, stdHMM)
+		datas[n] = data
 	}
 
 	// test
