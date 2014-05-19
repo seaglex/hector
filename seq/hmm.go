@@ -19,7 +19,12 @@ type HMM struct {
 	A        *core.Matrix
 	B        []*distr.GMM
 	InvA     [][]int // to accelerate the viterbi decoding
+	UniformB bool
 }
+
+const (
+	MIN_PR = 0
+)
 
 func CheckStateTransition(numState int, stateTransition *core.Matrix) ([][]int, error) {
 	if stateTransition == nil {
@@ -89,32 +94,42 @@ func NewHMM(numState int, stateTransition *core.Matrix, stateObservation []*dist
 		A:        stateTransition,
 		B:        stateObservation,
 		InvA:     invA,
+		UniformB: false,
 	}
 	return hmm, nil
 }
 
 func (self *HMM) GetStateProbabilities(x []float32) core.DenseVector64 {
 	var prs []float64 = make([]float64, self.NumState+1, self.NumState+1)
+	if self.UniformB {
+		for n := 0; n < self.NumState; n++ {
+			prs[n] = 1
+		}
+		return prs
+	}
 	for n, model := range self.B {
-		prs[n] = model.GetProbability(x)
+		prs[n] = math.Max(model.GetProbability(x), MIN_PR)
 	}
 	return prs
 }
 
 func (self *HMM) GetLogStateProbabilities(x []float32) core.DenseVector64 {
 	var lprs core.DenseVector64 = self.GetStateProbabilities(x)
-	for n, pr := range lprs {
-		lprs[n] = math.Log(pr)
+	for n := 0; n < self.NumState; n++ {
+		lprs[n] = math.Log(lprs[n])
 	}
 	return lprs
 }
 
 func (self *HMM) GetInitStateProbability(x []float32) float64 {
-	return self.B[0].GetProbability(x)
+	if self.UniformB {
+		return 1
+	}
+	return math.Max(self.B[0].GetProbability(x), MIN_PR)
 }
 
 func (self *HMM) GetLogInitStateProbability(x []float32) float64 {
-	return math.Log(self.B[0].GetProbability(x))
+	return math.Log(self.GetInitStateProbability(x))
 }
 
 func (self *HMM) GetTransitionProbability(ss int, ds int) float64 {
@@ -161,6 +176,9 @@ func (self *HMM) Decode(seq []core.DenseVector) (alphas []core.DenseVector64, be
 	for s := 0; s < self.NumState; s++ {
 		prEnd += alphas[T-1][s] * betas[T-1][s]
 	}
+	if prEnd <= 0 {
+		panic(fmt.Sprint("HMM: prEnd =", prEnd))
+	}
 	betas[T-1].Scale(scale[T-1])
 	for t := T - 2; t >= 0; t-- {
 		betas[t] = core.MultiplySparseMatVec(self.A, core.MultiplyElemWise(prs[t+1], betas[t+1]))
@@ -174,7 +192,13 @@ func (self *HMM) Decode(seq []core.DenseVector) (alphas []core.DenseVector64, be
 			panic("HMM: sum of gamma = 0")
 		}
 		// total / scale[t] == prEnd
-		// fmt.Print(total/scale[t], " ")
+		if math.Abs(total/scale[t]/prEnd-1.0) > 0.1 {
+			fmt.Println("Gamma", t, total, scale[t], prEnd)
+			fmt.Println(alphas)
+			fmt.Println(betas)
+			fmt.Println(prs)
+			panic("Gamma/scale != 1")
+		}
 		gammas[t].Scale(1.0 / total)
 	}
 	// fmt.Println()
@@ -182,6 +206,7 @@ func (self *HMM) Decode(seq []core.DenseVector) (alphas []core.DenseVector64, be
 	for _, s := range scale {
 		score -= math.Log(s)
 	}
+	// fmt.Println("scale", scale)
 	return alphas, betas, gammas, prs, score
 }
 
@@ -207,6 +232,7 @@ func NewHMMTrainer(dim int, numMixture int,
 		gmmTrainers[n] = distr.NewGMMTrainer(dim, numMixture)
 	}
 	trainer.Model, err = NewHMM(numState, trainer.Normalize(initTransitionCount), gmms)
+	trainer.Model.UniformB = true
 	if err != nil {
 		return nil, err
 	}
@@ -270,6 +296,7 @@ func (self *HMMTrainer) Optimize() error {
 		gmms[n] = self.GMMTrainers[n].GMM()
 	}
 	var err error
+	// fmt.Println(core.Mat2String(self.AccTransitionCount))
 	transitionMat := self.Normalize(self.AccTransitionCount)
 	self.Model, err = NewHMM(self.NumState, transitionMat, gmms)
 	if err != nil {

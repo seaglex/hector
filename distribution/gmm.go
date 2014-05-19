@@ -188,8 +188,9 @@ func (self *GMMTrainer) initGMMTrainer(dim int, numMixture int) {
 }
 
 func getMaxValue(prs []float64) float64 {
-	var maxPr float64 = 0
-	for _, pr := range prs {
+	var maxPr float64 = prs[0]
+	for n := 1; n < len(prs); n++ {
+		pr := prs[n]
 		if pr > maxPr {
 			maxPr = pr
 		}
@@ -198,6 +199,9 @@ func getMaxValue(prs []float64) float64 {
 }
 
 func (self *GMMTrainer) LearnCase(vec []float32, weight float64) float64 {
+	if self.NumMixture == 0 {
+		return 0
+	}
 	var logPosteriors []float64
 	logPosteriors = self.Model.GetLogProbabilities(vec)
 	var maxPosterior float64 = getMaxValue(logPosteriors)
@@ -206,9 +210,6 @@ func (self *GMMTrainer) LearnCase(vec []float32, weight float64) float64 {
 	for m := 0; m < self.NumMixture; m++ {
 		posteriors[m] = math.Exp(logPosteriors[m] - maxPosterior)
 		sumPr += posteriors[m]
-	}
-	if self.NumMixture == 0 {
-		return 0
 	}
 	weight *= 1.0 / sumPr
 	for m := 0; m < self.NumMixture; m++ {

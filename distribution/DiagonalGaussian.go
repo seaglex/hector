@@ -2,6 +2,7 @@ package distribution
 
 import (
 	"errors"
+	"fmt"
 	"math"
 )
 
@@ -11,6 +12,11 @@ type DiagonalGaussian struct {
 	Precisions []float64
 	LogC       float64
 }
+
+const (
+	DEFAULT_VARIANCE = 1
+	INIT_COUNT       = 1
+)
 
 func NewDiagonalGaussian(means []float64, covs []float64) (*DiagonalGaussian, error) {
 	gaussian := &DiagonalGaussian{}
@@ -27,7 +33,7 @@ func DefaultDiagonalGaussian(dim int) *DiagonalGaussian {
 	var means []float64 = make([]float64, dim, dim)
 	var covs []float64 = make([]float64, dim, dim)
 	for n := 0; n < dim; n++ {
-		covs[n] = 1
+		covs[n] = DEFAULT_VARIANCE
 	}
 	gaussin, err := NewDiagonalGaussian(means, covs)
 	if err != nil {
@@ -118,13 +124,12 @@ func (self *DiagonalGaussianTrainer) ResetTrainer(dim int) {
 	if self.AccMeans != nil || len(self.AccMeans) != dim {
 		self.AccMeans = make([]float64, dim, dim)
 		self.AccCovs = make([]float64, dim, dim)
-	} else {
-		for n := 0; n < dim; n++ {
-			self.AccMeans[n] = 0
-			self.AccCovs[n] = 0
-		}
 	}
-	self.AccWeight = 0
+	self.AccWeight = INIT_COUNT
+	for n := 0; n < dim; n++ {
+		self.AccMeans[n] = 0
+		self.AccCovs[n] = DEFAULT_VARIANCE * INIT_COUNT
+	}
 	return
 }
 
@@ -150,9 +155,13 @@ func (self *DiagonalGaussianTrainer) Distribution() (*DiagonalGaussian, error) {
 	var means = make([]float64, self.Dimension, self.Dimension)
 	var covs = make([]float64, self.Dimension, self.Dimension)
 	scalar := 1.0 / self.AccWeight
+	minCov := DEFAULT_VARIANCE * INIT_COUNT * scalar
 	for n := 0; n < self.Dimension; n++ {
 		means[n] = scalar * self.AccMeans[n]
-		covs[n] = scalar*self.AccCovs[n] - means[n]*means[n]
+		covs[n] = math.Max(scalar*self.AccCovs[n]-means[n]*means[n], minCov)
+		if covs[n] <= 0 {
+			panic(fmt.Sprint("DiagonalGaussianTrainer: covs[", n, "] =", covs[n]))
+		}
 	}
 	return NewDiagonalGaussian(means, covs)
 }
